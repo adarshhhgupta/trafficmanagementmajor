@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
+from typing import Any, Dict
 from pydantic_settings import BaseSettings
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -33,11 +35,16 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
     # CORS
-    CORS_ORIGINS: list = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-    ]
+    CORS_ORIGINS: Any = "http://localhost:3000,http://localhost:3001"
+
+    @property
+    def cors_origins_list(self) -> list:
+        if isinstance(self.CORS_ORIGINS, list):
+            return self.CORS_ORIGINS
+        if isinstance(self.CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return ["http://localhost:3000"]
+
 
     # RTSP Feeds Default Configuration
     DEFAULT_RTSP_STREAMS: dict = {

@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from app.models.vehicle_log import VehicleLog
+from app.models import VehicleLog
+
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
 
