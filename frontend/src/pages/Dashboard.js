@@ -1,238 +1,176 @@
-import { useState, useEffect, useRef } from 'react';
+import React from 'react';
+import VideoLaneCard from '../components/VideoLaneCard';
+import ConnectionStatus from '../components/ConnectionStatus';
+import { useTrafficSocket } from '../hooks/useTrafficSocket';
+import { Shield, Zap, RefreshCw, Activity, AlertOctagon } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import VideoLaneCard from '../components/VideoLaneCard';
-import TrafficAnalytics from '../components/TrafficAnalytics';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
-const API = `${BACKEND_URL}/api`;
 
 const Dashboard = () => {
-  const [laneData, setLaneData] = useState({
-    lane1: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-    lane2: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-    lane3: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-    lane4: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null }
-  });
+  const { laneData, isConnected, connectionStatus } = useTrafficSocket();
 
-  const [isProcessing, setIsProcessing] = useState({});
-  const [uploadedVideos, setUploadedVideos] = useState({});
-  const videoRefs = useRef({});
-  const canvasRefs = useRef({});
-  const processingIntervals = useRef({});
-  const frameInFlight = useRef({});
-  const systemGeneration = useRef(0);
-  const prevAmbulanceState = useRef({});
-
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await axios.get(`${API}/traffic-state`);
-        setLaneData(prevData => {
-          const newData = { ...prevData };
-          Object.keys(response.data).forEach(laneId => {
-            newData[laneId] = {
-              ...newData[laneId],
-              ...response.data[laneId]
-            };
-          });
-          return newData;
-        });
-      } catch (error) {
-        console.error('Error fetching traffic state:', error);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Ambulance alert (debounced so it doesn't spam)
-  useEffect(() => {
-    Object.entries(laneData).forEach(([laneId, lane]) => {
-      const prev = prevAmbulanceState.current[laneId] || 0;
-      if (lane.ambulances > 0 && prev === 0) {
-        const laneNumber = laneId.replace('lane', '');
-        toast.error(`🚨 EMERGENCY: Ambulance detected in Lane ${laneNumber}!`, {
-          duration: 4000,
-          style: {
-            background: 'rgb(127, 29, 29)',
-            color: '#fff',
-            border: '2px solid #FF003C',
-            fontSize: '16px',
-            fontWeight: 'bold'
-          }
-        });
-      }
-      prevAmbulanceState.current[laneId] = lane.ambulances;
-    });
-  }, [laneData]);
-
-  const handleVideoUpload = async (laneId, file) => {
+  const handleManualFallbackUpload = async (laneId, file) => {
     const formData = new FormData();
     formData.append('file', file);
-
     try {
-      await axios.post(`${API}/upload-video/${laneId}`, formData);
-
-      const videoUrl = URL.createObjectURL(file);
-      setUploadedVideos(prev => ({ ...prev, [laneId]: videoUrl }));
-      toast.success(`Video uploaded for Lane ${laneId.replace('lane', '')}`);
-    } catch (error) {
-      console.error('Error uploading video:', error);
-      toast.error('Failed to upload video');
-    }
-  };
-
-  const startProcessing = (laneId) => {
-    if (processingIntervals.current[laneId]) return;
-
-    const video = videoRefs.current[laneId];
-    const canvas = canvasRefs.current[laneId];
-
-    if (!video || !canvas) return;
-
-    video.play();
-    setIsProcessing(prev => ({ ...prev, [laneId]: true }));
-
-    const processFrame = async () => {
-      if (frameInFlight.current[laneId]) return;
-
-      if (!video.paused && !video.ended) {
-        frameInFlight.current[laneId] = true;
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-
-        canvas.toBlob(async (blob) => {
-          if (blob) {
-            const formData = new FormData();
-            formData.append('file', blob, 'frame.jpg');
-            formData.append('generation', String(systemGeneration.current));
-
-            try {
-              const response = await axios.post(`${API}/process-frame/${laneId}`, formData);
-
-              setLaneData(prevData => ({
-                ...prevData,
-                [laneId]: {
-                  ...prevData[laneId],
-                  vehicles: response.data.vehicles,
-                  ambulances: response.data.ambulances,
-                  signal: response.data.signal,
-                  duration: response.data.duration,
-                  density: response.data.density,
-                  frame: response.data.frame
-                }
-              }));
-
-              if (typeof response.data.generation === 'number') {
-                systemGeneration.current = response.data.generation;
-              }
-            } catch (error) {
-              console.error('Error processing frame:', error);
-            } finally {
-              frameInFlight.current[laneId] = false;
-            }
-          } else {
-            frameInFlight.current[laneId] = false;
-          }
-        }, 'image/jpeg', 0.65);
-      } else {
-        // Loop video
-        video.currentTime = 0;
-        video.play();
-      }
-    };
-
-    processingIntervals.current[laneId] = setInterval(processFrame, 500);
-  };
-
-  const stopProcessing = (laneId) => {
-    if (processingIntervals.current[laneId]) {
-      clearInterval(processingIntervals.current[laneId]);
-      delete processingIntervals.current[laneId];
-    }
-
-    delete frameInFlight.current[laneId];
-
-    const video = videoRefs.current[laneId];
-    if (video) video.pause();
-
-    setIsProcessing(prev => ({ ...prev, [laneId]: false }));
-  };
-
-  const resetSystem = async () => {
-    try {
-      const response = await axios.post(`${API}/reset`);
-      if (typeof response.data.generation === 'number') {
-        systemGeneration.current = response.data.generation;
-      }
-
-      Object.keys(processingIntervals.current).forEach(laneId => stopProcessing(laneId));
-
-      setLaneData({
-        lane1: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-        lane2: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-        lane3: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null },
-        lane4: { vehicles: 0, ambulances: 0, signal: 'red', duration: 0, density: 0, frame: null }
+      toast.info(`Uploading manual frame for ${laneId}...`);
+      await axios.post(`${BACKEND_URL}/api/process-frame/${laneId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setUploadedVideos({});
+      toast.success(`Manual frame processed for ${laneId}`);
+    } catch (err) {
+      toast.error(`Failed to process frame for ${laneId}`);
+    }
+  };
+
+  const handleGreenWaveToggle = async () => {
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/green-wave?active=true`);
+      toast.success(res.data.message);
+    } catch (err) {
+      toast.error('Failed to trigger Green Wave coordination');
+    }
+  };
+
+  const handleResetSystem = async () => {
+    try {
+      await axios.post(`${BACKEND_URL}/api/reset`);
       toast.success('System reset successfully');
-    } catch (error) {
-      console.error('Error resetting system:', error);
+    } catch (err) {
       toast.error('Failed to reset system');
     }
   };
 
+  const lanes = ['lane1', 'lane2', 'lane3', 'lane4'];
+
+  // Aggregate stats
+  const totalVehicles = Object.values(laneData).reduce((sum, d) => sum + (d.vehicles || 0), 0);
+  const totalAmbulances = Object.values(laneData).reduce((sum, d) => sum + (d.ambulances || 0), 0);
+  const totalPedestrians = Object.values(laneData).reduce((sum, d) => sum + (d.pedestrians || 0), 0);
+  const avgDensity = Object.values(laneData).length
+    ? (Object.values(laneData).reduce((sum, d) => sum + (d.density || 0), 0) / 4).toFixed(1)
+    : 0;
+
   return (
-    <div className="min-h-screen bg-[#0B0C10] text-[#C5C6C7]" data-testid="traffic-dashboard">
-      {/* Main Content */}
-      <div className="p-4 md:p-8">
-        {/* Dashboard Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-[#66FCF1]" style={{ fontFamily: 'Manrope, sans-serif' }}>
-              Live Traffic Monitoring
+    <div className="min-h-screen bg-[#0B0C10] text-slate-100 p-4 md:p-8">
+      {/* Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-800">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              URBAN PULSE <span className="text-[#66FCF1] font-mono text-sm font-normal">v2.0</span>
             </h1>
-            <p className="text-sm text-slate-400" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Real-time traffic signal control and vehicle detection
-            </p>
+            <ConnectionStatus status={connectionStatus} isConnected={isConnected} />
           </div>
-          <button
-            onClick={resetSystem}
-            className="px-4 py-2 bg-red-900/20 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-900/40 transition-all duration-300 text-sm font-medium"
-            data-testid="reset-system-btn"
-          >
-            Reset System
-          </button>
+          <p className="text-slate-400 text-xs mt-1">
+            Adaptive AI Traffic Sensing, RTSP Live Streams, TimescaleDB & Multi-Intersection Emergency Priority
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Video Feed Grid */}
-          <div className="lg:col-span-9">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {['lane1', 'lane2', 'lane3', 'lane4'].map((laneId, index) => (
-                <VideoLaneCard
-                  key={laneId}
-                  laneId={laneId}
-                  laneNumber={index + 1}
-                  data={laneData[laneId]}
-                  isProcessing={isProcessing[laneId]}
-                  videoUrl={uploadedVideos[laneId]}
-                  onUpload={(file) => handleVideoUpload(laneId, file)}
-                  onStart={() => startProcessing(laneId)}
-                  onStop={() => stopProcessing(laneId)}
-                  videoRef={(ref) => { videoRefs.current[laneId] = ref; }}
-                  canvasRef={(ref) => { canvasRefs.current[laneId] = ref; }}
-                />
-              ))}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleGreenWaveToggle}
+            className="flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 px-3 py-2 rounded-lg text-xs font-semibold transition"
+          >
+            <Zap size={14} />
+            <span>Trigger Green Wave Corridor</span>
+          </button>
+
+          <button
+            onClick={handleResetSystem}
+            className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 px-3 py-2 rounded-lg text-xs font-semibold transition"
+          >
+            <RefreshCw size={14} />
+            <span>Reset System</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Left 3 columns: 4 Lanes Video Grid */}
+        <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {lanes.map((laneId, idx) => (
+            <VideoLaneCard
+              key={laneId}
+              laneId={laneId}
+              laneNumber={idx + 1}
+              data={laneData[laneId] || {}}
+              onUpload={handleManualFallbackUpload}
+            />
+          ))}
+        </div>
+
+        {/* Right 1 column: Overview Metrics & Controls */}
+        <div className="space-y-4">
+          {/* Summary Panel */}
+          <div className="bg-[#1F2833] rounded-xl border border-slate-800 p-4">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Activity size={16} className="text-[#66FCF1]" />
+              System Metrics
+            </h2>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                <div className="text-slate-400 text-[10px]">TOTAL VEHICLES</div>
+                <div className="text-xl font-bold text-slate-100">{totalVehicles}</div>
+              </div>
+
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                <div className="text-slate-400 text-[10px]">AMBULANCES</div>
+                <div className={`text-xl font-bold ${totalAmbulances > 0 ? 'text-red-400 animate-pulse' : 'text-slate-100'}`}>
+                  {totalAmbulances}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                <div className="text-slate-400 text-[10px]">PEDESTRIANS</div>
+                <div className="text-xl font-bold text-purple-400">{totalPedestrians}</div>
+              </div>
+
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                <div className="text-slate-400 text-[10px]">AVG DENSITY</div>
+                <div className="text-xl font-bold text-[#66FCF1]">{avgDensity}%</div>
+              </div>
             </div>
           </div>
 
-          {/* Analytics Sidebar */}
-          <div className="lg:col-span-3">
-            <TrafficAnalytics laneData={laneData} />
+          {/* Lane Status Table */}
+          <div className="bg-[#1F2833] rounded-xl border border-slate-800 p-4">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Shield size={16} className="text-green-400" />
+              Signal Allocation
+            </h2>
+
+            <div className="space-y-2 text-xs">
+              {lanes.map((laneId, idx) => {
+                const info = laneData[laneId] || {};
+                const isGreen = info.signal === 'green';
+                return (
+                  <div key={laneId} className="flex items-center justify-between p-2 rounded bg-slate-900/40 border border-slate-800">
+                    <span className="font-semibold text-slate-300">LANE {idx + 1}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      isGreen ? 'bg-green-500/20 text-green-400 border border-green-500/40' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {isGreen ? `GREEN (${info.duration || 0}s)` : 'RED'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Architecture Note Card */}
+          <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-4 text-xs text-slate-400 space-y-2">
+            <div className="flex items-center gap-2 text-cyan-400 font-semibold">
+              <AlertOctagon size={16} />
+              <span>RTSP Pipeline Active</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Urban Pulse ingests live RTSP camera feeds in background workers, logs time-series data to TimescaleDB, and pushes frames over WebSockets.
+            </p>
           </div>
         </div>
       </div>

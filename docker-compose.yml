@@ -1,29 +1,56 @@
 version: '3.8'
 
 services:
-  mongodb:
-    image: mongo:7.0
-    container_name: traffic_mongodb
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: urbanpulse_postgres
     ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
+      - "5432:5432"
     environment:
-      MONGO_INITDB_DATABASE: traffic_management
+      POSTGRES_USER: urbanpulse
+      POSTGRES_PASSWORD: urbanpulse_password
+      POSTGRES_DB: urbanpulse_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanpulse -d urbanpulse_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: urbanpulse_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: traffic_backend
+    container_name: urbanpulse_backend
     ports:
       - "8000:8000"
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
-      - DB_NAME=traffic_management
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=urbanpulse
+      - POSTGRES_PASSWORD=urbanpulse_password
+      - POSTGRES_DB=urbanpulse_db
+      - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=http://localhost:3000
     depends_on:
-      - mongodb
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./backend:/app
 
@@ -31,13 +58,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: traffic_frontend
+    container_name: urbanpulse_frontend
     ports:
       - "3000:3000"
     environment:
       - REACT_APP_BACKEND_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
     depends_on:
       - backend
 
 volumes:
-  mongo_data:
+  postgres_data:
+  redis_data:
