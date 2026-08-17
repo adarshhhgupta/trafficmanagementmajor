@@ -4,6 +4,15 @@
 
 ---
 
+## 👥 Authors & Developers
+
+This major project was designed and developed by:
+- 👨‍💻 **Adarsh Kumar Gupta** — [GitHub Profile](https://github.com/adarshhhgupta)
+- 👨‍💻 **Rishikesh S** — [GitHub Profile](https://github.com/rishikesh807507)
+
+---
+
+
 ## 📌 Executive Summary & Mind Map
 
 ```mermaid
