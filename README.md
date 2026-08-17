@@ -4,15 +4,6 @@
 
 ---
 
-## 👥 Authors & Developers
-
-This major project was designed and developed by:
-- 👨‍💻 **Adarsh Kumar Gupta** — [GitHub Profile](https://github.com/adarshhhgupta)
-- 👨‍💻 **Rishikesh S** — [GitHub Profile](https://github.com/rishikesh807507)
-
----
-
-
 ## 📌 Executive Summary & Mind Map
 
 ```mermaid
@@ -251,5 +242,18 @@ git push origin main
 
 ---
 
+## 🎓 Academic Acknowledgments & Project Credits
+
+This project was completed as part of the **Major Project** curriculum at **MVJ College of Engineering**, developed under the guidance and mentorship of **Professor Mrs. Ankita Mishra**.
+
+- 🏫 **Institution**: MVJ College of Engineering
+- 👩‍🏫 **Project Guide**: Mrs. Ankita Mishra (Professor)
+- 👨‍💻 **Project Developers**:
+  - **Adarsh Kumar Gupta** ([GitHub](https://github.com/adarshhhgupta))
+  - **Rishikesh S** ([GitHub](https://github.com/rishikesh807507))
+
+---
+
 ## 📄 License
 Distributed under the MIT License. See `LICENSE` for details.
+
