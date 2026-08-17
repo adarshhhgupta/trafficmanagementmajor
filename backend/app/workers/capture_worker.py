@@ -5,6 +5,7 @@ import numpy as np
 import logging
 from pathlib import Path
 from typing import Optional
+from datetime import datetime, timezone
 from app.services.signal_controller import signal_controller
 from app.workers.inference_worker import process_frame_inference
 from app.core.websocket import ws_manager
@@ -32,28 +33,34 @@ class RTSPCaptureWorker:
             self.task.cancel()
 
     async def _run_loop(self):
-        logger.info(f"Starting real traffic video capture worker for {self.lane_id}")
+        logger.info(f"Starting CCTV POV traffic camera worker for {self.lane_id}")
         lane_num = int(self.lane_id.replace('lane', ''))
-        offset_frames = (lane_num - 1) * 30  # Stagger initial frame per lane for visual variety
+        
+        # Stagger starting frame per lane in the busy CCTV segment (frames 80 - 370)
+        start_frame = 80 + ((lane_num - 1) * 60)
 
         while self.is_running:
             video_source = str(SAMPLE_VIDEO_PATH) if SAMPLE_VIDEO_PATH.exists() else self.rtsp_url
             cap = await asyncio.to_thread(cv2.VideoCapture, video_source)
 
-            if offset_frames > 0 and cap.isOpened():
-                await asyncio.to_thread(cap.set, cv2.CAP_PROP_POS_FRAMES, offset_frames)
+            if cap.isOpened():
+                await asyncio.to_thread(cap.set, cv2.CAP_PROP_POS_FRAMES, start_frame)
 
             while self.is_running and cap.isOpened():
+                current_pos = await asyncio.to_thread(cap.get, cv2.CAP_PROP_POS_FRAMES)
+                # Loop back to active traffic segment (frame 80) if video ends
+                if current_pos >= 360:
+                    await asyncio.to_thread(cap.set, cv2.CAP_PROP_POS_FRAMES, 80)
+
                 ret, frame = await asyncio.to_thread(cap.read)
                 if not ret:
-                    # Loop video seamlessly when it reaches the end
-                    await asyncio.to_thread(cap.set, cv2.CAP_PROP_POS_FRAMES, 0)
+                    await asyncio.to_thread(cap.set, cv2.CAP_PROP_POS_FRAMES, 80)
                     ret, frame = await asyncio.to_thread(cap.read)
                     if not ret:
                         break
 
                 await self._process_and_broadcast(frame)
-                await asyncio.sleep(0.5)  # Smooth 2 FPS inference stream
+                await asyncio.sleep(0.4)  # ~2.5 FPS responsive CCTV stream
 
             await asyncio.to_thread(cap.release)
             await asyncio.sleep(1.0)
@@ -61,6 +68,7 @@ class RTSPCaptureWorker:
     async def _process_and_broadcast(self, frame: np.ndarray):
         vehicles, ambulances, pedestrians, anomalies, boxes, density = process_frame_inference(frame)
 
+        # Draw YOLO AI Bounding Boxes
         for box in boxes:
             lbl = box['label']
             color = (0, 0, 255) if lbl == 'Ambulance' else ((255, 100, 0) if lbl == 'Pedestrian' else (0, 255, 0))
@@ -68,6 +76,15 @@ class RTSPCaptureWorker:
             cv2.putText(frame, f"{lbl} {box['confidence']:.2f}",
                        (box['x1'], max(15, box['y1'] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+        # Add CCTV Camera OSD (On-Screen Display) Overlays
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        lane_num = self.lane_id.replace('lane', '')
+        
+        # OSD Header: CAM ID & LIVE Status
+        cv2.putText(frame, f"CCTV CAM-{lane_num} [INTERSECTION POV]", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+        cv2.putText(frame, f"REC {now_str}", (15, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+
+        # Update global traffic state
         signal_controller.traffic_state[self.lane_id]['vehicles'] = vehicles
         signal_controller.traffic_state[self.lane_id]['ambulances'] = ambulances
         signal_controller.traffic_state[self.lane_id]['pedestrians'] = pedestrians
