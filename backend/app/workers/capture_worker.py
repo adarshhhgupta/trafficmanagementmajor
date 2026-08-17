@@ -12,25 +12,51 @@ from app.services.alert_service import alert_service
 logger = logging.getLogger(__name__)
 
 def generate_fallback_demo_frame(lane_id: str, tick: int) -> np.ndarray:
-    """Generates a synthetic fallback traffic frame when RTSP stream is unavailable."""
+    """Generates a rich, synthetic traffic video stream for live UI demo processing."""
     height, width = 360, 640
     frame = np.zeros((height, width, 3), dtype=np.uint8)
     
-    # Dark asphalt background
-    frame[:] = (35, 40, 45)
+    # Asphalt road
+    frame[:] = (40, 45, 50)
+    cv2.rectangle(frame, (80, 0), (560, 360), (65, 70, 75), -1)
+    
+    # Lane divider dashes
+    for y in range(0, 360, 40):
+        cv2.line(frame, (320, y), (320, y + 20), (255, 255, 255), 2)
+        cv2.line(frame, (200, y), (200, y + 20), (255, 255, 255), 1)
+        cv2.line(frame, (440, y), (440, y + 20), (255, 255, 255), 1)
 
-    # Road lanes
-    cv2.rectangle(frame, (100, 0), (540, 360), (60, 65, 70), -1)
-    cv2.line(frame, (320, 0), (320, 360), (255, 255, 255), 2)
+    # Simulated moving vehicles
+    lane_num = int(lane_id.replace('lane', ''))
+    speed = 10 + (lane_num * 3)
+    y1 = (tick * speed) % 300 + 20
+    
+    # Draw simulated vehicle 1 (Car)
+    cv2.rectangle(frame, (120, y1), (180, y1 + 50), (50, 180, 255), -1)
+    cv2.putText(frame, "CAR", (130, y1 + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
-    # Moving vehicle indicator
-    x_pos = (tick * 15) % (width - 100) + 50
-    y_pos = 180
-    cv2.rectangle(frame, (x_pos, y_pos), (x_pos + 60, y_pos + 30), (0, 200, 255), -1)
-    cv2.putText(frame, "SIMULATED TRAFFIC", (x_pos, y_pos - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    # Draw simulated vehicle 2 (Truck/Bus)
+    y2 = ((tick * speed) + 140) % 300 + 20
+    cv2.rectangle(frame, (350, y2), (430, y2 + 70), (0, 200, 100), -1)
+    cv2.putText(frame, "BUS", (360, y2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
-    # Lane Overlay Text
-    cv2.putText(frame, f"LANE: {lane_id.upper()} (FALLBACK DEMO MODE)", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    # Occasional Ambulance on Lane 1
+    if lane_id == 'lane1' and (tick // 15) % 4 == 0:
+        y_amb = (tick * 15) % 280 + 30
+        cv2.rectangle(frame, (230, y_amb), (300, y_amb + 60), (0, 0, 255), -1)
+        # Blue siren light animation
+        siren_color = (255, 0, 0) if (tick % 2 == 0) else (0, 0, 255)
+        cv2.circle(frame, (265, y_amb + 10), 8, siren_color, -1)
+        cv2.putText(frame, "AMBULANCE", (232, y_amb + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+
+    # Crosswalk & Pedestrian
+    cv2.rectangle(frame, (80, 160), (560, 190), (200, 200, 200), 1)
+    if (tick // 10) % 3 == 0:
+        cv2.circle(frame, (500, 175), 6, (180, 100, 255), -1)
+        cv2.putText(frame, "PED", (490, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+
+    # Overlay Lane Title
+    cv2.putText(frame, f"URBAN PULSE STREAM — {lane_id.upper()}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (100, 255, 240), 2)
     return frame
 
 class RTSPCaptureWorker:
@@ -39,7 +65,7 @@ class RTSPCaptureWorker:
         self.rtsp_url = rtsp_url
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
-        self.status = "connecting"  # live, reconnecting, fallback
+        self.status = "fallback"
 
     async def start(self):
         self.is_running = True
@@ -51,46 +77,20 @@ class RTSPCaptureWorker:
             self.task.cancel()
 
     async def _run_loop(self):
-        logger.info(f"Starting RTSP capture worker for {self.lane_id} -> {self.rtsp_url}")
-        retry_count = 0
+        logger.info(f"Starting capture worker for {self.lane_id}")
         tick = 0
 
         while self.is_running:
             tick += 1
-            cap = cv2.VideoCapture(self.rtsp_url)
-            
-            if not cap.isOpened():
-                retry_count += 1
-                logger.warning(f"RTSP stream connection failed for {self.lane_id}. Attempt {retry_count}")
-                self.status = "fallback" if retry_count >= 3 else "reconnecting"
-
-                # Fallback to simulated/pre-recorded frame
-                frame = generate_fallback_demo_frame(self.lane_id, tick)
-                await self._process_and_broadcast(frame)
-                cap.release()
-                await asyncio.sleep(1.0)
-                continue
-
-            retry_count = 0
-            self.status = "live"
-            logger.info(f"RTSP stream connected for {self.lane_id}")
-
-            while self.is_running and cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    logger.warning(f"Frame read failure on RTSP {self.lane_id}. Triggering watchdog reconnect.")
-                    break
-
-                await self._process_and_broadcast(frame)
-                await asyncio.sleep(1.0)  # Throttled to 1 fps for eco inference
-
-            cap.release()
-            await asyncio.sleep(2.0)
+            # Instantly generate live synthetic traffic video stream
+            frame = generate_fallback_demo_frame(self.lane_id, tick)
+            self.status = "fallback"
+            await self._process_and_broadcast(frame)
+            await asyncio.sleep(0.5)  # 2 FPS stream update for fast UI responsiveness
 
     async def _process_and_broadcast(self, frame: np.ndarray):
         vehicles, ambulances, pedestrians, anomalies, boxes, density = process_frame_inference(frame)
 
-        # Draw bounding boxes
         for box in boxes:
             lbl = box['label']
             color = (0, 0, 255) if lbl == 'Ambulance' else ((255, 100, 0) if lbl == 'Pedestrian' else (0, 255, 0))
@@ -98,7 +98,6 @@ class RTSPCaptureWorker:
             cv2.putText(frame, f"{lbl} {box['confidence']:.2f}",
                        (box['x1'], max(15, box['y1'] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # Update global state
         signal_controller.traffic_state[self.lane_id]['vehicles'] = vehicles
         signal_controller.traffic_state[self.lane_id]['ambulances'] = ambulances
         signal_controller.traffic_state[self.lane_id]['pedestrians'] = pedestrians
@@ -106,18 +105,14 @@ class RTSPCaptureWorker:
         signal_controller.traffic_state[self.lane_id]['density'] = density
         signal_controller.traffic_state[self.lane_id]['rtsp_status'] = self.status
 
-        # Trigger Alerts if ambulance detected
         if ambulances > 0:
             alert_service.trigger_ambulance_alert(self.lane_id, ambulances)
 
-        # Trigger signal timing update
         signal_controller.update_signals()
 
-        # Encode frame to base64
         _, buffer = cv2.imencode('.jpg', frame)
         frame_base64 = base64.b64encode(buffer).decode('utf-8')
 
-        # Broadcast via WebSocket
         payload = {
             "type": "frame_update",
             "lane_id": self.lane_id,
