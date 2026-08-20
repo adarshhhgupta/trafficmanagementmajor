@@ -61,6 +61,7 @@ api_router = APIRouter(prefix=settings.API_V1_STR)
 
 @api_router.get("/")
 async def root():
+    """Health check endpoint returning system status and API metadata."""
     return {
         "title": settings.PROJECT_NAME,
         "version": settings.PROJECT_VERSION,
