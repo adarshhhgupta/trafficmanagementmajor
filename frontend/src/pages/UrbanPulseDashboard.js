@@ -680,13 +680,13 @@ export default function UrbanPulseDashboard() {
                       <div
                         className="absolute z-20 transition-all duration-1000 ease-out pointer-events-none"
                         style={{
-                          top: `calc(38% + ${drift.y}px)`,
-                          left: `calc(28% + ${drift.x}px)`,
-                          width: '115px',
-                          height: '62px',
+                          top: `calc(32% + ${drift.y}px)`,
+                          left: `calc(22% + ${drift.x}px)`,
+                          width: '150px',
+                          height: '82px',
                         }}
                       >
-                        <div className="w-full h-full border-2 border-red-500 bg-red-600/25 rounded-md relative shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse">
+                        <div className="w-full h-full border-2 border-red-500 bg-red-950/40 rounded-lg relative shadow-[0_0_30px_rgba(239,68,68,0.8)] backdrop-blur-[1px]">
                           {/* Corner Emergency Brackets */}
                           <div className="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-red-400"></div>
                           <div className="absolute -top-1.5 -right-1.5 w-3 h-3 border-t-2 border-r-2 border-red-400"></div>
@@ -694,20 +694,101 @@ export default function UrbanPulseDashboard() {
                           <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-red-400"></div>
 
                           {/* Dual Red/Blue Flashing Siren Lightbar on Vehicle Roof */}
-                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/90 px-2 py-0.5 rounded-full border border-red-500 shadow-md">
+                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/95 px-2.5 py-0.5 rounded-full border border-red-500 shadow-xl z-30">
                             <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
-                            <span className="text-[9px] font-mono font-bold text-red-300 whitespace-nowrap">
-                              AMBULANCE · 0.99
+                            <span className="text-[10px] font-mono font-bold text-red-300 whitespace-nowrap tracking-wide">
+                              🚨 AMBULANCE · 0.99
                             </span>
                             <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
                           </div>
 
-                          {/* Center Siren Status Pill */}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="bg-red-700/90 text-white font-bold text-[8px] font-mono px-1.5 py-0.5 rounded border border-red-300/40 flex items-center gap-1 shadow-lg">
-                              <Siren size={10} className="animate-spin text-red-200" />
-                              <span>HSV SIREN DETECTED</span>
-                            </div>
+                          {/* REALISTIC VECTOR AMBULANCE VAN GRAPHIC */}
+                          <div className="absolute inset-0 flex items-center justify-center p-1">
+                            <svg viewBox="0 0 120 65" className="w-full h-full drop-shadow-[0_8px_16px_rgba(0,0,0,0.9)]">
+                              <defs>
+                                <radialGradient id="ambTarmacGlow" cx="50%" cy="50%" r="50%">
+                                  <stop offset="0%" stopColor="#000000" stopOpacity="0.85" />
+                                  <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+                                </radialGradient>
+                                <radialGradient id="sirenRedPulse" cx="50%" cy="50%" r="50%">
+                                  <stop offset="0%" stopColor="#ef4444" stopOpacity="0.8" />
+                                  <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+                                </radialGradient>
+                                <radialGradient id="sirenBluePulse" cx="50%" cy="50%" r="50%">
+                                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
+                                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                                </radialGradient>
+                              </defs>
+
+                              {/* Road Ground Shadow */}
+                              <ellipse cx="60" cy="54" rx="52" ry="8" fill="url(#ambTarmacGlow)" />
+
+                              {/* Headlight beam on road */}
+                              <polygon points="16,42 0,55 0,32" fill="#fef08a" opacity="0.4" />
+
+                              {/* Ambulance Van Main Chassis */}
+                              <path
+                                d="M 18,44 L 25,26 L 42,20 L 102,20 C 107,20 110,24 110,29 L 110,46 C 110,49 107,51 104,51 L 22,51 C 19,51 17,48 18,44 Z"
+                                fill="#ffffff"
+                                stroke="#1e293b"
+                                strokeWidth="1.2"
+                              />
+
+                              {/* Front Cabin Windshield Glass */}
+                              <polygon points="27,27 41,22 41,36 21,36" fill="#0f172a" />
+                              <polygon points="28,28 39,23 39,30 24,33" fill="#38bdf8" opacity="0.6" />
+
+                              {/* Side Windows */}
+                              <rect x="47" y="24" width="22" height="12" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="0.5" />
+                              <rect x="49" y="26" width="18" height="8" rx="1" fill="#38bdf8" opacity="0.35" />
+                              <rect x="74" y="24" width="22" height="12" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="0.5" />
+                              <rect x="76" y="26" width="18" height="8" rx="1" fill="#38bdf8" opacity="0.35" />
+
+                              {/* Hi-Vis Red Stripe & Chevrons */}
+                              <rect x="18" y="38" width="92" height="6" fill="#dc2626" />
+                              <polygon points="52,38 57,38 52,44 47,44" fill="#facc15" />
+                              <polygon points="62,38 67,38 62,44 57,44" fill="#facc15" />
+                              <polygon points="72,38 77,38 72,44 67,44" fill="#facc15" />
+                              <polygon points="82,38 87,38 82,44 77,44" fill="#facc15" />
+
+                              {/* Red Medical Cross Insignia */}
+                              <rect x="85" y="27" width="6" height="6" fill="#dc2626" />
+                              <rect x="87" y="25" width="2" height="10" fill="#dc2626" />
+                              <rect x="83" y="29" width="10" height="2" fill="#dc2626" />
+
+                              {/* AMBULANCE Wordmark */}
+                              <text x="44" y="42.5" fill="#ffffff" fontSize="4.2" fontWeight="900" fontFamily="Inter" letterSpacing="0.6">
+                                AMBULANCE
+                              </text>
+
+                              {/* Wheels with Rubber Tires and Rims */}
+                              <circle cx="34" cy="51" r="6.5" fill="#090d16" stroke="#475569" strokeWidth="1.5" />
+                              <circle cx="34" cy="51" r="3" fill="#cbd5e1" />
+                              <circle cx="92" cy="51" r="6.5" fill="#090d16" stroke="#475569" strokeWidth="1.5" />
+                              <circle cx="92" cy="51" r="3" fill="#cbd5e1" />
+
+                              {/* Headlight & Indicator */}
+                              <rect x="16" y="40" width="3" height="4" rx="0.5" fill="#fef08a" />
+                              <rect x="16" y="45" width="2" height="2.5" rx="0.5" fill="#f97316" />
+
+                              {/* Roof Siren Strobe Lightbar */}
+                              <rect x="54" y="15" width="24" height="5" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1" />
+                              <circle cx="58" cy="17.5" r="2.5" fill="#ef4444" className="animate-ping" />
+                              <circle cx="58" cy="17.5" r="2" fill="#ef4444" />
+                              <circle cx="74" cy="17.5" r="2.5" fill="#3b82f6" className="animate-ping" />
+                              <circle cx="74" cy="17.5" r="2" fill="#3b82f6" />
+                              <circle cx="66" cy="17.5" r="1.5" fill="#f59e0b" />
+
+                              {/* Flashing Light Radiance Waves */}
+                              <ellipse cx="58" cy="17.5" rx="18" ry="12" fill="url(#sirenRedPulse)" className="animate-pulse" />
+                              <ellipse cx="74" cy="17.5" rx="18" ry="12" fill="url(#sirenBluePulse)" className="animate-pulse" />
+                            </svg>
+                          </div>
+
+                          {/* Bottom HSV Tag Pill */}
+                          <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-red-900/90 text-white font-bold text-[8px] font-mono px-2 py-0.5 rounded-full border border-red-400 flex items-center gap-1 shadow-lg whitespace-nowrap">
+                            <Siren size={10} className="animate-spin text-red-200" />
+                            <span>EMERGENCY VEHICLE · PRIORITY 1</span>
                           </div>
                         </div>
                       </div>
