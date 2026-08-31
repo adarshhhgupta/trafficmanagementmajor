@@ -10,15 +10,19 @@ const Navigation = () => {
   const location = useLocation();
   
   const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/", label: "Situation Room", icon: LayoutDashboard },
     { path: "/analytics", label: "Analytics", icon: BarChart3 },
-    { path: "/vip", label: "VIP Control", icon: Crown },
+    { path: "/vip", label: "VIP Corridor", icon: Crown },
     { path: "/settings", label: "Settings", icon: SettingsIcon },
   ];
 
   return (
-    <nav className="bg-[#1F2833] border-b border-slate-800 px-4 md:px-8">
-      <div className="flex items-center gap-1 overflow-x-auto">
+    <nav className="bg-[#151210] border-b border-[#2d261e] px-4 md:px-8">
+      <div className="flex items-center gap-2 overflow-x-auto py-2">
+        <div className="flex items-center gap-2 pr-4 border-r border-[#2d261e] mr-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#D97706] animate-pulse"></span>
+          <span className="font-fraunces font-bold text-stone-200 text-sm tracking-wide">Urban Pulse</span>
+        </div>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
@@ -26,14 +30,14 @@ const Navigation = () => {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-200 whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-mono transition-all duration-200 whitespace-nowrap ${
                 isActive
-                  ? "bg-[#66FCF1]/10 text-[#66FCF1] border border-[#66FCF1]/30"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                  ? "bg-[#D97706]/15 text-amber-300 border border-[#D97706]/40 shadow-sm shadow-amber-950/30 font-semibold"
+                  : "text-stone-400 hover:text-stone-200 hover:bg-[#1b1815] border border-transparent"
               }`}
             >
-              <Icon size={18} />
-              <span className="font-medium">{item.label}</span>
+              <Icon size={15} />
+              <span>{item.label}</span>
             </Link>
           );
         })}

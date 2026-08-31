@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Crown, ShieldCheck, Off } from 'lucide-react';
+import { Crown, ShieldCheck } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
