@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.websocket("/ws/traffic")
-async def websocket_traffic_endpoint(websocket: WebSocket):
+async def websocket_traffic_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint pushing real-time lane state, annotated frames, and alerts to frontend clients."""
     await ws_manager.connect(websocket)
     try:
