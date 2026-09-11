@@ -54,7 +54,26 @@ class SignalController:
         """Updates signals based on current lane metrics and priority rules."""
         now = datetime.now(timezone.utc)
 
-        # 1. VIP Override Priority
+        # 1. Emergency Ambulance Override (Highest Priority)
+        # Ambulance lane ALWAYS green, all other remaining lanes strictly RED
+        ambulance_lanes = [l for l, s in self.traffic_state.items() if s['ambulances'] > 0]
+        if ambulance_lanes:
+            priority_lane = ambulance_lanes[0]
+            for lane_id in self.traffic_state:
+                if lane_id == priority_lane:
+                    self.traffic_state[lane_id]['signal'] = 'green'
+                    self.traffic_state[lane_id]['duration'] = 60
+                    self.traffic_state[lane_id]['mode'] = 'emergency'
+                else:
+                    self.traffic_state[lane_id]['signal'] = 'red'
+                    self.traffic_state[lane_id]['duration'] = 0
+                    self.traffic_state[lane_id]['mode'] = 'normal'
+
+            self.current_green_lane = priority_lane
+            self.green_start_time = now
+            return
+
+        # 2. VIP Override Priority
         if self.vip_mode and self.vip_override_lane:
             if self.vip_override_start:
                 elapsed = (now - self.vip_override_start).total_seconds()
@@ -74,7 +93,7 @@ class SignalController:
                             self.traffic_state[lane_id]['mode'] = 'normal'
                     return
 
-        # 2. Green Wave Multi-Intersection Coordination Priority
+        # 3. Green Wave Multi-Intersection Coordination Priority
         if self.green_wave_active:
             if self.green_wave_start:
                 elapsed = (now - self.green_wave_start).total_seconds()
@@ -92,27 +111,6 @@ class SignalController:
                             self.traffic_state[lane_id]['duration'] = 0
                             self.traffic_state[lane_id]['mode'] = 'normal'
                     return
-
-        # 3. Emergency Ambulance Override
-        ambulance_lanes = [l for l, s in self.traffic_state.items() if s['ambulances'] > 0]
-        if ambulance_lanes:
-            priority_lane = ambulance_lanes[0]
-            if self.current_green_lane != priority_lane:
-                if self.current_green_lane and self.current_green_lane in self.traffic_state:
-                    self.traffic_state[self.current_green_lane]['signal'] = 'red'
-                    self.traffic_state[self.current_green_lane]['duration'] = 0
-                    self.traffic_state[self.current_green_lane]['mode'] = 'normal'
-
-                self.current_green_lane = priority_lane
-                self.traffic_state[priority_lane]['signal'] = 'green'
-                self.traffic_state[priority_lane]['duration'] = self.calculate_green_duration(
-                    self.traffic_state[priority_lane]['vehicles'],
-                    self.traffic_state[priority_lane]['ambulances'],
-                    self.traffic_state[priority_lane]['pedestrians']
-                )
-                self.traffic_state[priority_lane]['mode'] = 'emergency'
-                self.green_start_time = now
-            return
 
         # 4. Standard AI Adaptive Rotation Logic based on Vehicle Density
         if self.current_green_lane and self.green_start_time:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield,
   Zap,
@@ -12,7 +12,9 @@ import {
   TrendingUp,
   AlertOctagon,
   ArrowUpRight,
-  Camera
+  Film,
+  Upload,
+  RotateCcw
 } from 'lucide-react';
 import {
   AreaChart,
@@ -55,7 +57,21 @@ export default function UrbanPulseDashboard() {
   const [greenWaveTimer, setGreenWaveTimer] = useState(0);
   const [activeAmbulances, setActiveAmbulances] = useState(1);
   const [feedMode, setFeedMode] = useState('optical'); // 'optical' | 'thermal'
-  const [customVideoUrl] = useState(null);
+  const [customVideoUrl, setCustomVideoUrl] = useState(null);
+
+  // --- RECORDED VIDEO DETECTION & WEBSOCKET STATE ---
+  const [detectionViewMode, setDetectionViewMode] = useState('ai_detect'); // 'ai_detect' | 'raw_video'
+  const [laneData, setLaneData] = useState({});
+  const [isWsConnected, setIsWsConnected] = useState(false);
+  const [videoSourceInfo, setVideoSourceInfo] = useState({
+    filename: 'sample_traffic.mp4',
+    total_frames: 377,
+    fps: 12.5,
+    duration_seconds: 30.2,
+    source_type: 'recorded_video'
+  });
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   // --- STATE FOR INTERSECTION SIGNAL PHASES ---
   // Phase 0: N-S Green, E-W Red
@@ -92,6 +108,22 @@ export default function UrbanPulseDashboard() {
   // --- LIVE CLOCK ---
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // --- EMERGENCY AMBULANCE DETECTION & PRIORITY CORRIDOR ---
+  const ambulanceLaneKey = useMemo(() => {
+    const fromWs = Object.keys(laneData).find((k) => (laneData[k]?.ambulances || 0) > 0);
+    if (fromWs) return fromWs;
+    if (activeAmbulances > 0) return 'lane4'; // Default scenario has emergency ambulance on Approach West (Lane 4)
+    return null;
+  }, [laneData, activeAmbulances]);
+
+  const ambulanceDir = useMemo(() => {
+    if (ambulanceLaneKey === 'lane1') return 'N';
+    if (ambulanceLaneKey === 'lane2') return 'S';
+    if (ambulanceLaneKey === 'lane3') return 'E';
+    if (ambulanceLaneKey === 'lane4') return 'W';
+    return null;
+  }, [ambulanceLaneKey]);
+
   // --- 4 APPROACHES METADATA ---
   const approaches = useMemo(() => [
     {
@@ -105,8 +137,8 @@ export default function UrbanPulseDashboard() {
       camId: 'CAM-01-N-MGRD',
       fps: '25.0',
       bitrate: '3.8 Mb/s',
-      signal: greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red'),
-      countdown: greenWaveActive ? greenWaveTimer : (signalPhase === 0 || signalPhase === 1 ? phaseSecondsLeft : phaseSecondsLeft + 28),
+      signal: ambulanceDir ? (ambulanceDir === 'N' ? 'green' : 'red') : (greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red')),
+      countdown: ambulanceDir ? (ambulanceDir === 'N' ? 60 : 0) : (greenWaveActive ? greenWaveTimer : (signalPhase === 0 || signalPhase === 1 ? phaseSecondsLeft : phaseSecondsLeft + 28)),
       isWaveCorridor: true,
       detectionTag: 'car · 0.94'
     },
@@ -121,8 +153,8 @@ export default function UrbanPulseDashboard() {
       camId: 'CAM-02-S-BRGD',
       fps: '25.0',
       bitrate: '3.6 Mb/s',
-      signal: greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red'),
-      countdown: greenWaveActive ? greenWaveTimer : (signalPhase === 0 || signalPhase === 1 ? phaseSecondsLeft : phaseSecondsLeft + 28),
+      signal: ambulanceDir ? (ambulanceDir === 'S' ? 'green' : 'red') : (greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red')),
+      countdown: ambulanceDir ? (ambulanceDir === 'S' ? 60 : 0) : (greenWaveActive ? greenWaveTimer : (signalPhase === 0 || signalPhase === 1 ? phaseSecondsLeft : phaseSecondsLeft + 28)),
       isWaveCorridor: true,
       detectionTag: 'bus · 0.96'
     },
@@ -137,8 +169,8 @@ export default function UrbanPulseDashboard() {
       camId: 'CAM-03-E-TRNT',
       fps: '24.9',
       bitrate: '4.1 Mb/s',
-      signal: greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red'),
-      countdown: greenWaveActive ? greenWaveTimer : (signalPhase === 2 || signalPhase === 3 ? phaseSecondsLeft : phaseSecondsLeft + 32),
+      signal: ambulanceDir ? (ambulanceDir === 'E' ? 'green' : 'red') : (greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red')),
+      countdown: ambulanceDir ? (ambulanceDir === 'E' ? 60 : 0) : (greenWaveActive ? greenWaveTimer : (signalPhase === 2 || signalPhase === 3 ? phaseSecondsLeft : phaseSecondsLeft + 32)),
       isWaveCorridor: false,
       detectionTag: 'auto · 0.91'
     },
@@ -153,13 +185,13 @@ export default function UrbanPulseDashboard() {
       camId: 'CAM-04-W-CHRC',
       fps: '25.0',
       bitrate: '3.4 Mb/s',
-      signal: greenWaveActive ? 'green' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red'),
-      countdown: greenWaveActive ? greenWaveTimer : (signalPhase === 2 || signalPhase === 3 ? phaseSecondsLeft : phaseSecondsLeft + 32),
+      signal: ambulanceDir ? (ambulanceDir === 'W' ? 'green' : 'red') : (greenWaveActive ? 'green' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red')),
+      countdown: ambulanceDir ? (ambulanceDir === 'W' ? 60 : 0) : (greenWaveActive ? greenWaveTimer : (signalPhase === 2 || signalPhase === 3 ? phaseSecondsLeft : phaseSecondsLeft + 32)),
       isWaveCorridor: true,
       hasAmbulance: true,
       detectionTag: 'AMBULANCE · 0.99 🚨'
     }
-  ], [signalPhase, phaseSecondsLeft, greenWaveActive, greenWaveTimer]);
+  ], [signalPhase, phaseSecondsLeft, greenWaveActive, greenWaveTimer, ambulanceDir]);
 
   // --- TRAFFIC FLOW 50-MINUTE HISTORY DATA (RECHARTS) ---
   const trafficHistory = useMemo(() => {
@@ -199,6 +231,96 @@ export default function UrbanPulseDashboard() {
     { id: 'ALT-107', title: 'Wrong-way detection cleared', location: 'Brigade Jn entry ramp', time: '8m ago', severity: 'green', desc: 'Vehicle reversed successfully; no bottleneck recorded.' },
     { id: 'ALT-106', title: 'HSV siren color signature detected', location: 'Approach East (Trinity corridor)', time: '14m ago', severity: 'red', desc: 'Emergency priority corridor deployed (cleared in 14.2s).' },
   ]);
+
+  // --- RECORDED VIDEO WEBSOCKET & DATA HOOKS ---
+  useEffect(() => {
+    let ws;
+    let reconnectTimer;
+    const connectWs = () => {
+      try {
+        const wsHost = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+        ws = new WebSocket(`${wsHost}/ws/traffic`);
+        ws.onopen = () => setIsWsConnected(true);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'frame_update' && data.lane_id) {
+              setLaneData((prev) => ({ ...prev, [data.lane_id]: data }));
+              if (data.video_name) {
+                setVideoSourceInfo((prev) => ({ ...prev, filename: data.video_name }));
+              }
+            }
+          } catch (e) {}
+        };
+        ws.onclose = () => {
+          setIsWsConnected(false);
+          reconnectTimer = setTimeout(connectWs, 2500);
+        };
+        ws.onerror = () => setIsWsConnected(false);
+      } catch (e) {
+        reconnectTimer = setTimeout(connectWs, 2500);
+      }
+    };
+    connectWs();
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
+  }, []);
+
+  // Fetch initial recorded video source info
+  useEffect(() => {
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+    fetch(`${backendUrl}/api/video-source`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.filename) setVideoSourceInfo(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleVideoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    setIsUploading(true);
+    try {
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+      const res = await fetch(`${backendUrl}/api/upload-recorded-video`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCustomVideoUrl(data.video_url || URL.createObjectURL(file));
+        setVideoSourceInfo((prev) => ({
+          ...prev,
+          filename: data.filename,
+          total_frames: data.total_frames,
+          fps: data.fps,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to upload video:', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleResetVideo = async () => {
+    try {
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+      await fetch(`${backendUrl}/api/reset-video-source`, { method: 'POST' });
+      setCustomVideoUrl(null);
+      const infoRes = await fetch(`${backendUrl}/api/video-source`);
+      const info = await infoRes.json();
+      setVideoSourceInfo(info);
+    } catch (err) {
+      console.error('Failed to reset video:', err);
+    }
+  };
 
   // --- 1. SIGNAL CYCLE INTERVAL ---
   useEffect(() => {
@@ -286,19 +408,32 @@ export default function UrbanPulseDashboard() {
       setVehicles((prev) =>
         prev.map((v) => {
           let canMove = true;
-          const isNSGreen = greenWaveActive || signalPhase === 0;
-          const isEWGreen = !greenWaveActive && signalPhase === 2;
 
-          if ((v.dir === 'N' || v.dir === 'S') && !isNSGreen && v.progress > 0.32 && v.progress < 0.42) {
-            canMove = false;
+          // Determine whether the signal for this vehicle's approach is green
+          let isApproachGreen = false;
+          if (ambulanceDir) {
+            // Priority Emergency Corridor: Ambulance approach is GREEN, all others RED
+            isApproachGreen = v.dir === ambulanceDir;
+          } else {
+            const isNSGreen = greenWaveActive || signalPhase === 0;
+            const isEWGreen = !greenWaveActive && signalPhase === 2;
+            if (v.dir === 'N' || v.dir === 'S') isApproachGreen = isNSGreen;
+            if (v.dir === 'E' || v.dir === 'W') isApproachGreen = isEWGreen;
           }
-          if ((v.dir === 'E' || v.dir === 'W') && !isEWGreen && v.progress > 0.32 && v.progress < 0.42) {
+
+          // Emergency Ambulance ALWAYS has green priority and NEVER stops at a signal
+          if (v.type === 'ambulance') {
+            canMove = true;
+          } else if (!isApproachGreen && v.progress > 0.32 && v.progress < 0.42) {
+            // Other vehicles stop at the crosswalk holding line if their approach is red
             canMove = false;
           }
 
           if (!canMove) return v;
 
-          let newProgress = v.progress + 0.015;
+          // Emergency vehicle travels with priority speed
+          const speed = v.type === 'ambulance' ? 0.024 : 0.015;
+          let newProgress = v.progress + speed;
           if (newProgress >= 1) {
             newProgress = 0;
           }
@@ -327,7 +462,7 @@ export default function UrbanPulseDashboard() {
     }, 50);
 
     return () => clearInterval(anim);
-  }, [signalPhase, greenWaveActive]);
+  }, [signalPhase, greenWaveActive, ambulanceDir]);
 
   // --- 5. GREEN WAVE COUNTDOWN HANDLER ---
   useEffect(() => {
@@ -464,9 +599,16 @@ export default function UrbanPulseDashboard() {
                 <span className="text-stone-600">·</span>
                 <span className="text-stone-400">Live since 06:00 IST</span>
                 <span className="text-stone-600">·</span>
-                <span className="text-emerald-400 font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Signal Cycle Active (Phase {signalPhase + 1}/4)
-                </span>
+                {ambulanceDir ? (
+                  <span className="text-red-400 font-medium flex items-center gap-1.5 animate-pulse">
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
+                    <span className="font-bold">🚨 Emergency Preemption Active ({ambulanceDir}-Lane Green Priority · All Other Lanes Red)</span>
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 font-medium flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Signal Cycle Active (Phase {signalPhase + 1}/4)
+                  </span>
+                )}
               </p>
             </div>
 
@@ -480,32 +622,41 @@ export default function UrbanPulseDashboard() {
                 <div>
                   <div className="text-[10px] font-mono text-stone-400 uppercase tracking-wider">Live Vehicles</div>
                   <div className="text-lg font-bold font-mono text-stone-100 flex items-center gap-1">
-                    {liveVehicleCount}
-                    <span className="text-[10px] text-emerald-400 font-normal">active</span>
+                    {Object.values(laneData).length > 0
+                      ? Object.values(laneData).reduce((sum, d) => sum + (d.vehicles || 0), 0)
+                      : liveVehicleCount}
+                    <span className="text-[10px] text-emerald-400 font-normal">detected</span>
                   </div>
                 </div>
               </div>
 
               {/* Active Ambulance Badge */}
-              <div className={`border rounded-lg px-3.5 py-2 flex items-center gap-3 min-w-[130px] transition-all ${
-                activeAmbulances > 0
-                  ? 'bg-red-950/40 border-red-500/50 shadow-md shadow-red-900/20'
-                  : 'bg-[#242019] border-[#2d261e]'
-              }`}>
-                <div className={`p-2 rounded-md border ${
-                  activeAmbulances > 0
-                    ? 'bg-red-900/50 text-red-400 border-red-500/50 animate-bounce'
-                    : 'bg-[#1b1815] text-stone-400 border-[#383028]'
-                }`}>
-                  <Siren size={16} />
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono text-stone-400 uppercase tracking-wider">Ambulance</div>
-                  <div className={`text-lg font-bold font-mono ${activeAmbulances > 0 ? 'text-red-400' : 'text-stone-100'}`}>
-                    {activeAmbulances} <span className="text-[10px] text-stone-400 font-normal">{activeAmbulances > 0 ? 'in corridor' : 'detected'}</span>
+              {(() => {
+                const detectedAmbulances = Object.values(laneData).reduce((sum, d) => sum + (d.ambulances || 0), 0);
+                const hasAmb = detectedAmbulances > 0 || activeAmbulances > 0;
+                return (
+                  <div className={`border rounded-lg px-3.5 py-2 flex items-center gap-3 min-w-[130px] transition-all ${
+                    hasAmb
+                      ? 'bg-red-950/40 border-red-500/50 shadow-md shadow-red-900/20'
+                      : 'bg-[#242019] border-[#2d261e]'
+                  }`}>
+                    <div className={`p-2 rounded-md border ${
+                      hasAmb
+                        ? 'bg-red-900/50 text-red-400 border-red-500/50 animate-bounce'
+                        : 'bg-[#1b1815] text-stone-400 border-[#383028]'
+                    }`}>
+                      <Siren size={16} />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-mono text-stone-400 uppercase tracking-wider">Ambulance</div>
+                      <div className={`text-lg font-bold font-mono ${hasAmb ? 'text-red-400' : 'text-stone-100'}`}>
+                        {detectedAmbulances > 0 ? detectedAmbulances : activeAmbulances}{' '}
+                        <span className="text-[10px] text-stone-400 font-normal">{hasAmb ? 'in corridor' : 'none'}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Prominent Amber "Trigger Green Wave" CTA Button */}
               <button
@@ -531,20 +682,59 @@ export default function UrbanPulseDashboard() {
         </header>
 
         {/* ========================================================= */}
-        {/* 2. LIVE LANE DETECTION STRIP (4 CAMERA FEEDS WITH REAL-WORLD VIDEO) */}
+        {/* 2. RECORDED VIDEO DETECTION STRIP (4 CCTV APPROACHES WITH YOLOv8 INFERENCE) */}
         {/* ========================================================= */}
-        <section className="space-y-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
-            <div className="flex items-center gap-2 text-xs font-semibold text-stone-300">
-              <Camera size={14} className="text-[#D97706]" />
-              <span className="uppercase font-mono tracking-wider text-[11px] text-stone-300">
-                Live Lane Ingestion · 4 Approaches (Real-World RTSP Feeds)
+        <section className="space-y-3">
+          {/* Recorded Video Source & Control Toolbar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#151210] border border-[#2d261e] p-3 rounded-xl shadow-md">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-1.5 text-xs font-mono text-stone-300">
+                <Film size={15} className="text-[#D97706]" />
+                <span className="text-stone-400">Detection Source:</span>
+                <span className="text-amber-400 font-bold bg-[#1b1815] px-2 py-0.5 rounded border border-[#383028]">
+                  {videoSourceInfo.filename || 'sample_traffic.mp4'}
+                </span>
+              </div>
+              {videoSourceInfo.total_frames > 0 && (
+                <span className="text-[10px] font-mono text-stone-500 hidden sm:inline">
+                  ({videoSourceInfo.total_frames} frames · {videoSourceInfo.duration_seconds}s · {videoSourceInfo.fps} FPS)
+                </span>
+              )}
+              <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                isWsConnected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isWsConnected ? 'bg-emerald-400' : 'bg-amber-400'} animate-ping`}></span>
+                {isWsConnected ? 'YOLOv8 RECORDED DETECT' : 'CONNECTING WS'}
               </span>
             </div>
-            
-            {/* Real Video Mode Controls */}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-[#1b1815] border border-[#2d261e] p-0.5 rounded-lg text-[10px] font-mono">
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Detection View Mode Selector */}
+              <div className="flex items-center bg-[#1b1815] border border-[#2d261e] p-0.5 rounded-lg text-[10px] font-mono">
+                <button
+                  onClick={() => setDetectionViewMode('ai_detect')}
+                  className={`px-2.5 py-1 rounded font-semibold transition ${
+                    detectionViewMode === 'ai_detect'
+                      ? 'bg-[#D97706] text-stone-950 shadow-sm font-bold'
+                      : 'text-stone-400 hover:text-stone-200'
+                  }`}
+                >
+                  🎯 AI Detection View
+                </button>
+                <button
+                  onClick={() => setDetectionViewMode('raw_video')}
+                  className={`px-2.5 py-1 rounded font-semibold transition ${
+                    detectionViewMode === 'raw_video'
+                      ? 'bg-amber-600 text-stone-950 shadow-sm font-bold'
+                      : 'text-stone-400 hover:text-stone-200'
+                  }`}
+                >
+                  📹 Raw Video
+                </button>
+              </div>
+
+              {/* Feed Optical / Thermal Controls */}
+              <div className="flex items-center bg-[#1b1815] border border-[#2d261e] p-0.5 rounded-lg text-[10px] font-mono">
                 <button
                   onClick={() => setFeedMode('optical')}
                   className={`px-2 py-0.5 rounded font-semibold transition ${
@@ -553,7 +743,7 @@ export default function UrbanPulseDashboard() {
                       : 'text-stone-400 hover:text-stone-200'
                   }`}
                 >
-                  Optical Feed
+                  Optical
                 </button>
                 <button
                   onClick={() => setFeedMode('thermal')}
@@ -563,28 +753,57 @@ export default function UrbanPulseDashboard() {
                       : 'text-stone-400 hover:text-stone-200'
                   }`}
                 >
-                  AI Thermal Mode
+                  Thermal
                 </button>
               </div>
 
-              <span className="text-[11px] font-mono text-stone-500 hidden md:inline">
-                YOLOv8 Inference @ 25 FPS
-              </span>
+              {/* Video Upload Button */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleVideoUpload}
+                accept="video/mp4,video/avi,video/quicktime,video/x-matroska,video/webm"
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#D97706]/15 hover:bg-[#D97706]/25 border border-[#D97706]/40 text-amber-300 rounded-lg text-xs font-mono font-semibold transition disabled:opacity-50"
+              >
+                <Upload size={13} className={isUploading ? 'animate-spin' : ''} />
+                <span>{isUploading ? 'Uploading...' : 'Upload Video (.mp4)'}</span>
+              </button>
+
+              {/* Reset to Default Video */}
+              <button
+                onClick={handleResetVideo}
+                title="Reset to default sample_traffic.mp4"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#1b1815] hover:bg-[#242019] border border-[#2d261e] text-stone-400 hover:text-stone-200 rounded-lg text-xs font-mono transition"
+              >
+                <RotateCcw size={12} />
+                <span>Reset</span>
+              </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {approaches.map((appr, idx) => {
+              const laneKey = idx === 0 ? 'lane1' : idx === 1 ? 'lane2' : idx === 2 ? 'lane3' : 'lane4';
+              const currentLaneData = laneData[laneKey] || {};
+              const detectedVehicles = currentLaneData.vehicles !== undefined ? currentLaneData.vehicles : appr.vehicles;
+              const hasAmbulanceDetected = (currentLaneData.ambulances || 0) > 0 || (idx === 3 && appr.hasAmbulance);
+              const hasAiFrame = Boolean(currentLaneData.frame && detectionViewMode === 'ai_detect');
               const drift = driftOffsets[idx] || { x: 0, y: 0, confidence: 0.92, tag: 'car' };
-              const isSignalGreen = appr.signal === 'green';
-              const isSignalAmber = appr.signal === 'amber';
+              const isSignalGreen = ambulanceDir ? appr.id === ambulanceDir : (currentLaneData.signal ? currentLaneData.signal === 'green' : appr.signal === 'green');
+              const isSignalAmber = ambulanceDir ? false : (currentLaneData.signal ? currentLaneData.signal === 'yellow' : appr.signal === 'amber');
+              const countdownVal = ambulanceDir ? (appr.id === ambulanceDir ? (currentLaneData.duration || 60) : 0) : (currentLaneData.duration !== undefined ? currentLaneData.duration : appr.countdown);
 
               return (
                 <div
                   key={appr.id}
                   onClick={() => setSelectedApproach(selectedApproach === appr.id ? 'all' : appr.id)}
                   className={`bg-[#1b1815] border rounded-xl overflow-hidden transition-all duration-200 cursor-pointer group ${
-                    appr.hasAmbulance || idx === 3
+                    hasAmbulanceDetected
                       ? 'border-red-500/80 shadow-lg shadow-red-950/40 ring-1 ring-red-500/40'
                       : selectedApproach === appr.id
                       ? 'border-amber-500 shadow-md shadow-amber-950/30'
@@ -595,7 +814,7 @@ export default function UrbanPulseDashboard() {
                   <div className="p-3 bg-[#242019]/60 border-b border-[#2d261e] flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs font-bold text-stone-200 flex items-center gap-1.5">
-                        {(appr.hasAmbulance || idx === 3) && (
+                        {hasAmbulanceDetected && (
                           <span className="flex h-2 w-2 relative">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -616,57 +835,70 @@ export default function UrbanPulseDashboard() {
                         }`}
                       ></span>
                       <span className="font-mono text-[10px] uppercase font-bold text-stone-300">
-                        {appr.signal} ({appr.countdown}s)
+                        {isSignalGreen ? 'GREEN' : isSignalAmber ? 'AMBER' : 'RED'} ({countdownVal}s)
                       </span>
                     </div>
                   </div>
 
-                  {/* Real-World Video Feed Screen with drifting YOLOv8 Bounding Box */}
+                  {/* Real-World Video Feed Screen with YOLOv8 Bounding Box Detection */}
                   <div className="relative h-48 bg-black p-3 overflow-hidden flex flex-col justify-between select-none">
                     
-                    {/* Embedded Real-World HTML5 Video Player */}
+                    {/* Video / AI Detection Frame Container */}
                     <div className="absolute inset-0 overflow-hidden bg-stone-950">
-                      <video
-                        src={customVideoUrl || "/sample_traffic.mp4"}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover transition-all duration-500"
-                        style={{
-                          transform: idx === 1 ? 'scaleX(-1)' : idx === 2 ? 'scale(1.1) translate(-2%, -2%)' : idx === 3 ? 'scale(1.15) translate(2%, 2%)' : 'none',
-                          filter: feedMode === 'thermal'
-                            ? 'contrast(1.5) brightness(0.85) hue-rotate(190deg) saturate(2.5)'
-                            : idx === 3
-                            ? 'contrast(1.18) brightness(0.88) saturate(1.15)'
-                            : 'contrast(1.12) brightness(0.85) saturate(1.1)'
-                        }}
-                      />
+                      {hasAiFrame ? (
+                        <img
+                          src={`data:image/jpeg;base64,${currentLaneData.frame}`}
+                          alt={`CCTV Recorded Detection - ${appr.camId}`}
+                          className="w-full h-full object-cover transition-all duration-200"
+                          style={{
+                            filter: feedMode === 'thermal'
+                              ? 'contrast(1.5) brightness(0.85) hue-rotate(190deg) saturate(2.5)'
+                              : 'none'
+                          }}
+                        />
+                      ) : (
+                        <video
+                          src={customVideoUrl || "/sample_traffic.mp4"}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover transition-all duration-500"
+                          style={{
+                            transform: idx === 1 ? 'scaleX(-1)' : idx === 2 ? 'scale(1.1) translate(-2%, -2%)' : idx === 3 ? 'scale(1.15) translate(2%, 2%)' : 'none',
+                            filter: feedMode === 'thermal'
+                              ? 'contrast(1.5) brightness(0.85) hue-rotate(190deg) saturate(2.5)'
+                              : idx === 3
+                              ? 'contrast(1.18) brightness(0.88) saturate(1.15)'
+                              : 'contrast(1.12) brightness(0.85) saturate(1.1)'
+                          }}
+                        />
+                      )}
                       {/* Dark gradient vignettes for legible telemetry */}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/60 pointer-events-none" />
                       {/* Subtle CCTV grid / scanline effect */}
                       <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] pointer-events-none opacity-40" />
                     </div>
 
-                    {/* RTSP Live Badge & Telemetry */}
+                    {/* Recorded Video Badge & Telemetry */}
                     <div className="flex items-center justify-between z-10">
                       <div className="flex items-center gap-1.5 bg-black/75 backdrop-blur-sm border border-stone-800 px-2 py-0.5 rounded text-[10px] font-mono text-stone-300 shadow">
-                        <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                        <span className="font-bold text-red-400">LIVE RTSP</span>
+                        <span className={`h-1.5 w-1.5 rounded-full ${hasAiFrame ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></span>
+                        <span className="font-bold text-amber-400">RECORDED CCTV</span>
                         <span className="text-stone-500">|</span>
                         <span>{appr.camId}</span>
                       </div>
                       <div className="text-[9px] font-mono text-stone-300 bg-black/75 backdrop-blur-sm px-1.5 py-0.5 rounded border border-stone-800 shadow">
-                        {appr.fps} FPS · {appr.bitrate}
+                        {currentLaneData.density !== undefined ? `${currentLaneData.density.toFixed(1)}% DENSITY` : `${appr.fps} FPS`}
                       </div>
                     </div>
 
-                    {/* Top Emergency Banner on 4th Lane */}
-                    {idx === 3 && (
+                    {/* Top Emergency Banner if Ambulance Detected */}
+                    {hasAmbulanceDetected && (
                       <div className="absolute top-9 left-2 right-2 z-20 bg-red-950/85 backdrop-blur-sm border border-red-500/80 text-red-200 px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center justify-between shadow-md animate-pulse">
                         <div className="flex items-center gap-1.5">
                           <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
-                          <span>🚨 AMBULANCE DETECTED IN LANE 4</span>
+                          <span>🚨 AMBULANCE DETECTED IN {appr.name.toUpperCase()}</span>
                         </div>
                         <span className="text-amber-300 bg-black/60 px-1 py-0.2 rounded text-[8px] border border-amber-500/40">
                           PRIORITY 1
@@ -674,175 +906,63 @@ export default function UrbanPulseDashboard() {
                       </div>
                     )}
 
-                    {/* Animated Drifting Bounding Box (YOLOv8 Live Inference Simulation) */}
-                    {idx === 3 || drift.isAmbulance ? (
-                      /* AMBULANCE BOUNDING BOX (LANE 4) */
-                      <div
-                        className="absolute z-20 transition-all duration-1000 ease-out pointer-events-none"
-                        style={{
-                          top: `calc(32% + ${drift.y}px)`,
-                          left: `calc(22% + ${drift.x}px)`,
-                          width: '150px',
-                          height: '82px',
-                        }}
-                      >
-                        <div className="w-full h-full border-2 border-red-500 bg-red-950/40 rounded-lg relative shadow-[0_0_30px_rgba(239,68,68,0.8)] backdrop-blur-[1px]">
-                          {/* Corner Emergency Brackets */}
-                          <div className="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-red-400"></div>
-                          <div className="absolute -top-1.5 -right-1.5 w-3 h-3 border-t-2 border-r-2 border-red-400"></div>
-                          <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 border-b-2 border-l-2 border-red-400"></div>
-                          <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-red-400"></div>
-
-                          {/* Dual Red/Blue Flashing Siren Lightbar on Vehicle Roof */}
-                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/95 px-2.5 py-0.5 rounded-full border border-red-500 shadow-xl z-30">
-                            <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
-                            <span className="text-[10px] font-mono font-bold text-red-300 whitespace-nowrap tracking-wide">
-                              🚨 AMBULANCE · 0.99
-                            </span>
-                            <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                    {/* If raw video mode or frame not yet received, display CSS simulation boxes */}
+                    {!hasAiFrame && (
+                      <>
+                        {idx === 3 || drift.isAmbulance ? (
+                          <div
+                            className="absolute z-20 transition-all duration-1000 ease-out pointer-events-none"
+                            style={{
+                              top: `calc(32% + ${drift.y}px)`,
+                              left: `calc(22% + ${drift.x}px)`,
+                              width: '150px',
+                              height: '82px',
+                            }}
+                          >
+                            <div className="w-full h-full border-2 border-red-500 bg-red-950/40 rounded-lg relative shadow-[0_0_30px_rgba(239,68,68,0.8)] backdrop-blur-[1px]">
+                              <div className="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-red-400"></div>
+                              <div className="absolute -top-1.5 -right-1.5 w-3 h-3 border-t-2 border-r-2 border-red-400"></div>
+                              <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 border-b-2 border-l-2 border-red-400"></div>
+                              <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-red-400"></div>
+                              <div className="absolute -top-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/95 px-2.5 py-0.5 rounded-full border border-red-500 shadow-xl z-30">
+                                <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
+                                <span className="text-[10px] font-mono font-bold text-red-300 whitespace-nowrap tracking-wide">
+                                  🚨 AMBULANCE · 0.99
+                                </span>
+                                <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                              </div>
+                            </div>
                           </div>
-
-                          {/* REALISTIC VECTOR AMBULANCE VAN GRAPHIC */}
-                          <div className="absolute inset-0 flex items-center justify-center p-1">
-                            <svg viewBox="0 0 120 65" className="w-full h-full drop-shadow-[0_8px_16px_rgba(0,0,0,0.9)]">
-                              <defs>
-                                <radialGradient id="ambTarmacGlow" cx="50%" cy="50%" r="50%">
-                                  <stop offset="0%" stopColor="#000000" stopOpacity="0.85" />
-                                  <stop offset="100%" stopColor="#000000" stopOpacity="0" />
-                                </radialGradient>
-                                <radialGradient id="sirenRedPulse" cx="50%" cy="50%" r="50%">
-                                  <stop offset="0%" stopColor="#ef4444" stopOpacity="0.8" />
-                                  <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-                                </radialGradient>
-                                <radialGradient id="sirenBluePulse" cx="50%" cy="50%" r="50%">
-                                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
-                                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                                </radialGradient>
-                              </defs>
-
-                              {/* Road Ground Shadow */}
-                              <ellipse cx="60" cy="54" rx="52" ry="8" fill="url(#ambTarmacGlow)" />
-
-                              {/* Headlight beam on road */}
-                              <polygon points="16,42 0,55 0,32" fill="#fef08a" opacity="0.4" />
-
-                              {/* Ambulance Van Main Chassis */}
-                              <path
-                                d="M 18,44 L 25,26 L 42,20 L 102,20 C 107,20 110,24 110,29 L 110,46 C 110,49 107,51 104,51 L 22,51 C 19,51 17,48 18,44 Z"
-                                fill="#ffffff"
-                                stroke="#1e293b"
-                                strokeWidth="1.2"
-                              />
-
-                              {/* Front Cabin Windshield Glass */}
-                              <polygon points="27,27 41,22 41,36 21,36" fill="#0f172a" />
-                              <polygon points="28,28 39,23 39,30 24,33" fill="#38bdf8" opacity="0.6" />
-
-                              {/* Side Windows */}
-                              <rect x="47" y="24" width="22" height="12" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="0.5" />
-                              <rect x="49" y="26" width="18" height="8" rx="1" fill="#38bdf8" opacity="0.35" />
-                              <rect x="74" y="24" width="22" height="12" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="0.5" />
-                              <rect x="76" y="26" width="18" height="8" rx="1" fill="#38bdf8" opacity="0.35" />
-
-                              {/* Hi-Vis Red Stripe & Chevrons */}
-                              <rect x="18" y="38" width="92" height="6" fill="#dc2626" />
-                              <polygon points="52,38 57,38 52,44 47,44" fill="#facc15" />
-                              <polygon points="62,38 67,38 62,44 57,44" fill="#facc15" />
-                              <polygon points="72,38 77,38 72,44 67,44" fill="#facc15" />
-                              <polygon points="82,38 87,38 82,44 77,44" fill="#facc15" />
-
-                              {/* Red Medical Cross Insignia */}
-                              <rect x="85" y="27" width="6" height="6" fill="#dc2626" />
-                              <rect x="87" y="25" width="2" height="10" fill="#dc2626" />
-                              <rect x="83" y="29" width="10" height="2" fill="#dc2626" />
-
-                              {/* AMBULANCE Wordmark */}
-                              <text x="44" y="42.5" fill="#ffffff" fontSize="4.2" fontWeight="900" fontFamily="Inter" letterSpacing="0.6">
-                                AMBULANCE
-                              </text>
-
-                              {/* Wheels with Rubber Tires and Rims */}
-                              <circle cx="34" cy="51" r="6.5" fill="#090d16" stroke="#475569" strokeWidth="1.5" />
-                              <circle cx="34" cy="51" r="3" fill="#cbd5e1" />
-                              <circle cx="92" cy="51" r="6.5" fill="#090d16" stroke="#475569" strokeWidth="1.5" />
-                              <circle cx="92" cy="51" r="3" fill="#cbd5e1" />
-
-                              {/* Headlight & Indicator */}
-                              <rect x="16" y="40" width="3" height="4" rx="0.5" fill="#fef08a" />
-                              <rect x="16" y="45" width="2" height="2.5" rx="0.5" fill="#f97316" />
-
-                              {/* Roof Siren Strobe Lightbar */}
-                              <rect x="54" y="15" width="24" height="5" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1" />
-                              <circle cx="58" cy="17.5" r="2.5" fill="#ef4444" className="animate-ping" />
-                              <circle cx="58" cy="17.5" r="2" fill="#ef4444" />
-                              <circle cx="74" cy="17.5" r="2.5" fill="#3b82f6" className="animate-ping" />
-                              <circle cx="74" cy="17.5" r="2" fill="#3b82f6" />
-                              <circle cx="66" cy="17.5" r="1.5" fill="#f59e0b" />
-
-                              {/* Flashing Light Radiance Waves */}
-                              <ellipse cx="58" cy="17.5" rx="18" ry="12" fill="url(#sirenRedPulse)" className="animate-pulse" />
-                              <ellipse cx="74" cy="17.5" rx="18" ry="12" fill="url(#sirenBluePulse)" className="animate-pulse" />
-                            </svg>
+                        ) : (
+                          <div
+                            className="absolute z-20 transition-all duration-1000 ease-out pointer-events-none"
+                            style={{
+                              top: `calc(40% + ${drift.y}px)`,
+                              left: `calc(32% + ${drift.x}px)`,
+                              width: '88px',
+                              height: '48px',
+                            }}
+                          >
+                            <div className="w-full h-full border-2 border-amber-400 bg-amber-500/15 rounded-sm relative shadow-[0_0_10px_rgba(245,158,11,0.3)]">
+                              <div className="absolute -top-4 left-0 bg-amber-500 text-stone-950 text-[9px] font-mono font-bold px-1 rounded-t-sm whitespace-nowrap shadow-sm">
+                                {drift.tag} · {drift.confidence}
+                              </div>
+                            </div>
                           </div>
-
-                          {/* Bottom HSV Tag Pill */}
-                          <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-red-900/90 text-white font-bold text-[8px] font-mono px-2 py-0.5 rounded-full border border-red-400 flex items-center gap-1 shadow-lg whitespace-nowrap">
-                            <Siren size={10} className="animate-spin text-red-200" />
-                            <span>EMERGENCY VEHICLE · PRIORITY 1</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Standard Vehicle Bounding Box */
-                      <div
-                        className="absolute z-20 transition-all duration-1000 ease-out pointer-events-none"
-                        style={{
-                          top: `calc(40% + ${drift.y}px)`,
-                          left: `calc(32% + ${drift.x}px)`,
-                          width: '88px',
-                          height: '48px',
-                        }}
-                      >
-                        <div className="w-full h-full border-2 border-amber-400 bg-amber-500/15 rounded-sm relative shadow-[0_0_10px_rgba(245,158,11,0.3)]">
-                          <div className="absolute -top-1 -left-1 w-2 h-2 border-t-2 border-l-2 border-amber-400"></div>
-                          <div className="absolute -top-1 -right-1 w-2 h-2 border-t-2 border-r-2 border-amber-400"></div>
-                          <div className="absolute -bottom-1 -left-1 w-2 h-2 border-b-2 border-l-2 border-amber-400"></div>
-                          <div className="absolute -bottom-1 -right-1 w-2 h-2 border-b-2 border-r-2 border-amber-400"></div>
-
-                          <div className="absolute -top-4 left-0 bg-amber-500 text-stone-950 text-[9px] font-mono font-bold px-1 rounded-t-sm whitespace-nowrap shadow-sm">
-                            {drift.tag} · {drift.confidence}
-                          </div>
-                        </div>
-                      </div>
+                        )}
+                      </>
                     )}
-
-                    {/* Secondary Ghost Bounding Box */}
-                    <div
-                      className="absolute z-10 transition-all duration-1000 ease-out opacity-75 pointer-events-none"
-                      style={{
-                        top: `calc(20% - ${drift.y * 0.4}px)`,
-                        left: `calc(58% - ${drift.x * 0.4}px)`,
-                        width: '54px',
-                        height: '32px',
-                      }}
-                    >
-                      <div className="w-full h-full border border-emerald-400 bg-emerald-500/15 rounded-sm relative">
-                        <div className="absolute -top-3.5 left-0 bg-emerald-600 text-white text-[8px] font-mono px-1 rounded-t-sm">
-                          car · 0.88
-                        </div>
-                      </div>
-                    </div>
 
                     {/* Bottom Feed Overlay Stats */}
                     <div className="flex items-center justify-between z-10 pt-2">
                       <div className="bg-black/75 backdrop-blur-sm px-2 py-0.5 rounded border border-stone-800 font-mono text-[10px] text-stone-200 shadow">
-                        Vehicles: <span className="font-bold text-amber-400">{appr.vehicles}</span>
+                        Vehicles: <span className="font-bold text-amber-400">{detectedVehicles}</span>
                       </div>
                       <div className="bg-black/75 backdrop-blur-sm px-2 py-0.5 rounded border border-stone-800 font-mono text-[10px] text-stone-200 shadow">
                         {isSignalGreen ? (
-                          <span className="text-emerald-400 font-bold">Green: {appr.countdown}s</span>
+                          <span className="text-emerald-400 font-bold">Green: {countdownVal}s</span>
                         ) : (
-                          <span className="text-stone-300 font-bold">Wait: {appr.countdown}s</span>
+                          <span className="text-stone-300 font-bold">Wait: {countdownVal}s</span>
                         )}
                       </div>
                     </div>
@@ -917,7 +1037,12 @@ export default function UrbanPulseDashboard() {
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-[#D97706] glow-amber"></span> Amber Transition
                 </span>
-                {greenWaveActive && (
+                {ambulanceDir && (
+                  <span className="flex items-center gap-1.5 text-red-400 font-bold animate-pulse">
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span> 🚨 Emergency Priority: {ambulanceDir}-Lane Green (Other Lanes Red)
+                  </span>
+                )}
+                {!ambulanceDir && greenWaveActive && (
                   <span className="flex items-center gap-1.5 text-amber-300 font-bold animate-pulse">
                     <span className="h-2 w-2 rounded-full bg-amber-400"></span> Green Wave Corridor
                   </span>
@@ -1062,7 +1187,7 @@ export default function UrbanPulseDashboard() {
                   {/* 9. Animated Signal Heads (4 Corners) */}
                   {/* North Signal Head */}
                   {(() => {
-                    const sig = greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red');
+                    const sig = ambulanceDir ? (ambulanceDir === 'N' ? 'green' : 'red') : (greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red'));
                     return (
                       <g transform="translate(170, 150)">
                         <rect x="0" y="0" width="18" height="34" rx="4" fill="#151210" stroke="#443a2f" strokeWidth="1.5" />
@@ -1076,7 +1201,7 @@ export default function UrbanPulseDashboard() {
 
                   {/* South Signal Head */}
                   {(() => {
-                    const sig = greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red');
+                    const sig = ambulanceDir ? (ambulanceDir === 'S' ? 'green' : 'red') : (greenWaveActive ? 'green' : (signalPhase === 0 ? 'green' : signalPhase === 1 ? 'amber' : 'red'));
                     return (
                       <g transform="translate(315, 315)">
                         <rect x="0" y="0" width="18" height="34" rx="4" fill="#151210" stroke="#443a2f" strokeWidth="1.5" />
@@ -1090,7 +1215,7 @@ export default function UrbanPulseDashboard() {
 
                   {/* West Signal Head */}
                   {(() => {
-                    const sig = greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red');
+                    const sig = ambulanceDir ? (ambulanceDir === 'W' ? 'green' : 'red') : (greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red'));
                     return (
                       <g transform="translate(150, 315)">
                         <rect x="0" y="0" width="34" height="18" rx="4" fill="#151210" stroke="#443a2f" strokeWidth="1.5" />
@@ -1104,7 +1229,7 @@ export default function UrbanPulseDashboard() {
 
                   {/* East Signal Head */}
                   {(() => {
-                    const sig = greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red');
+                    const sig = ambulanceDir ? (ambulanceDir === 'E' ? 'green' : 'red') : (greenWaveActive ? 'red' : (signalPhase === 2 ? 'green' : signalPhase === 3 ? 'amber' : 'red'));
                     return (
                       <g transform="translate(315, 168)">
                         <rect x="0" y="0" width="34" height="18" rx="4" fill="#151210" stroke="#443a2f" strokeWidth="1.5" />
@@ -1127,12 +1252,21 @@ export default function UrbanPulseDashboard() {
 
                 {/* SVG Active Telemetry Floating Chip */}
                 <div className="absolute bottom-3 left-3 bg-[#1b1815]/90 backdrop-blur-md border border-[#383028] px-3 py-1.5 rounded-md text-[10px] font-mono text-stone-300 flex items-center gap-3">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span className="font-bold text-emerald-400">Phase {signalPhase + 1} of 4</span>
-                  </span>
-                  <span className="text-stone-600">|</span>
-                  <span>Cycle Duration: 64s</span>
+                  {ambulanceDir ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
+                      <span className="font-bold text-red-400">🚨 EMERGENCY OVERRIDE: {ambulanceDir}-LANE GREEN · ALL OTHER LANES RED</span>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+                        <span className="font-bold text-emerald-400">Phase {signalPhase + 1} of 4</span>
+                      </span>
+                      <span className="text-stone-600">|</span>
+                      <span>Cycle Duration: 64s</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

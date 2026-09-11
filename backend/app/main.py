@@ -76,6 +76,11 @@ api_router.include_router(routes_auth.router, tags=["Auth"])
 app.include_router(api_router)
 app.include_router(routes_ws.router)
 
+# Mount static video serving for uploaded recorded videos
+from fastapi.staticfiles import StaticFiles
+from app.services.video_source_service import UPLOAD_DIR
+app.mount("/static/videos", StaticFiles(directory=str(UPLOAD_DIR)), name="videos")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
